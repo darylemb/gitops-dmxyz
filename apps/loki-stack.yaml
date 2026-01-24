@@ -17,6 +17,11 @@ spec:
             size: 5Gi
         promtail:
           enabled: true
+        grafana:
+          enabled: false
+          sidecar:
+            datasources:
+              enabled: false
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring
