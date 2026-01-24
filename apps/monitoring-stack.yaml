@@ -15,7 +15,7 @@ spec:
           grafana.ini:
             security:
               allow_embedding: true
-              cookie_samesite: none
+              cookie_samesite: lax
           additionalDataSources:
             - name: Loki
               type: loki
@@ -26,6 +26,7 @@ spec:
     namespace: monitoring
   syncPolicy:
     automated:
+      prune: true
       selfHeal: true
     syncOptions:
     - CreateNamespace=true
