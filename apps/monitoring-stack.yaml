@@ -14,7 +14,7 @@ spec:
         grafana:
           grafana.ini:
             security:
-              allow_embedding: false
+              allow_embedding: true
               cookie_samesite: none
           additionalDataSources:
             - name: Prometheus
