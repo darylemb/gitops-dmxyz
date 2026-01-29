@@ -21,6 +21,21 @@ spec:
               type: loki
               url: http://loki-stack.monitoring:3100
               isDefault: false
+          persistence:
+            enabled: true
+            storageClassName: "local-path"
+            accessModes: ["ReadWriteOnce"]
+            size: 5Gi
+        prometheus:
+          prometheusSpec:
+            storageSpec:
+              volumeClaimTemplate:
+                spec:
+                  storageClassName: "local-path"
+                  accessModes: ["ReadWriteOnce"]
+                  resources:
+                    requests:
+                      storage: 5Gi
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring
