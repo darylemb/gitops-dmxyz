@@ -41,7 +41,7 @@ spec:
                   cluster_address = "[::]:8201"
                 }
                 storage "raft" {
-                  path = "/home/openbao/data"
+                  path = "/openbao/data"
                 }
                 service_registration "kubernetes" {}
   destination:
