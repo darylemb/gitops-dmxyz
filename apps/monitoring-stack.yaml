@@ -12,6 +12,8 @@ spec:
     helm:
       values: |
         grafana:
+          initChownData:
+            enabled: false
           grafana.ini:
             security:
               allow_embedding: true
