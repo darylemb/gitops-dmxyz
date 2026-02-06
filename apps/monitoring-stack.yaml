@@ -12,12 +12,20 @@ spec:
     helm:
       values: |
         grafana:
+          assertNoLeakedSecrets: false
+          envFromSecret: "grafana-db-secret"
           initChownData:
             enabled: false
           grafana.ini:
             security:
               allow_embedding: true
               cookie_samesite: lax
+            database:
+              type: mysql
+              host: 10.0.0.195:3306
+              name: grafana
+              user: grafana_admin
+              password: $admin-password
           additionalDataSources:
             - name: Loki
               type: loki
