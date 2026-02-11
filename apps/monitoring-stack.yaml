@@ -20,6 +20,12 @@ spec:
             security:
               allow_embedding: true
               cookie_samesite: lax
+          sidecar:
+            dashboards:
+              enabled: true
+              label: grafana_dashboard
+              provider:
+                allowUiUpdates: true
           additionalDataSources:
             - name: Loki
               type: loki
