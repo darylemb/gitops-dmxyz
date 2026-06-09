@@ -1,0 +1,41 @@
+---
+# Argo CD Application for chroma-server.
+# Pulls the k8s manifests from the chroma-server repo and applies them
+# in the cluster. Self-heals drift; prunes anything removed from the repo.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: chroma-server
+  namespace: argocd
+  labels:
+    app: chroma-server
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/darylemb/chroma-server.git
+    targetRevision: HEAD
+    path: deploy/k8s
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd   # argocd ignores this for child apps; see ignoreDifferences
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
+  # Without this, Argo will try to enforce the parent Application's
+  # destination namespace (argocd) on every child resource, which would
+  # overwrite chroma/ in the resources themselves.
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/template/spec/initContainers/0/image
