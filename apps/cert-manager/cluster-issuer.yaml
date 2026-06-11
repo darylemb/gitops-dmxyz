@@ -1,0 +1,38 @@
+---
+# Let's Encrypt production ClusterIssuer using the Cloudflare DNS-01 solver.
+#
+# This file is applied by the root-app's `apps/` directory, so Argo CD will
+# reconcile it (prune if removed, self-heal if drifted). To rotate the API
+# token, see apps/cert-manager/README.md.
+#
+# The Secret `cloudflare-api-token` lives in the cert-manager namespace and
+# must be created imperatively once (out of band of GitOps) with:
+#
+#   kubectl create secret generic cloudflare-api-token \
+#     --namespace cert-manager \
+#     --from-literal=api-token=<YOUR_CLOUDFLARE_API_TOKEN>
+#
+# The token needs Zone:DNS:Edit on darylm.xyz (same scope as the Terraform
+# token in the cloudflare repo).
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+  labels:
+    app: cert-manager
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: darylemb@gmail.com
+    privateKeySecretRef:
+      name: letsencrypt-prod-account-key
+    solvers:
+      - dns01:
+          cloudflare:
+            email: darylemb@gmail.com
+            apiTokenSecretRef:
+              name: cloudflare-api-token
+              key: api-token
+        selector:
+          dnsZones:
+            - darylm.xyz
