@@ -84,12 +84,18 @@ spec:
         replicaCount: 1
 
         # Service — ClusterIP only; the Ingress reaches it on port 3000.
+        # The chart's default value.yaml sets `service.http.clusterIP: None`,
+        # which Go templates render as a literal "None" string and produce a
+        # *headless* Service. Headless Services have no clusterIP and the
+        # Ingress backend won't resolve them. Force an empty clusterIP so
+        # the field is omitted entirely and the API server assigns one.
         service:
           http:
             type: ClusterIP
             port: 3000
             # Gitea listens on 3000 by default.
             targetPort: 3000
+            clusterIP: ""
 
         # Disable the chart's built-in Ingress — we manage our own so the
         # cert-manager annotations and Traefik entrypoint stay consistent
