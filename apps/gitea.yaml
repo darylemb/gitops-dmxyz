@@ -1,0 +1,152 @@
+---
+# Argo CD Application for Gitea.
+#
+# Single-user Gitea instance (self-hosted Git). Runs on the control plane
+# (OCI VM) for higher availability vs the Rocky worker. PVC-backed with
+# local-path storage (same pattern as chroma/grafana/prometheus/loki).
+#
+# Chart: https://dl.gitea.com/charts  (gitea/gitea, official Gitea helm chart)
+# Pinned to v12.6.0 (app v1.26.1, May 2026). Bump via PR.
+#
+# After Argo CD syncs:
+#   1. Initial admin user is auto-created with the username/password below
+#      (CHANGE THESE — they're inlined as the chart default; we'll switch to
+#      an Imperative Secret + adminUser.existingSecret once that's wired up).
+#   2. The Ingress in apps/gitea/ingress.yaml exposes the Service as
+#      gitea.darylm.xyz (cert-manager TLS, Cloudflare Access on top).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gitea
+  namespace: argocd
+  labels:
+    app: gitea
+spec:
+  project: default
+  source:
+    repoURL: https://dl.gitea.com/charts
+    chart: gitea
+    targetRevision: 12.6.0
+    helm:
+      values: |
+        # Single-node, single-user. Default admin is created on first boot.
+        gitea:
+          admin:
+            username: daryl
+            # CHANGE BEFORE FIRST BOOT — move to a Secret reference.
+            password: "REPLACE_ME_VIA_SECRET_BEFORE_FIRST_BOOT"
+            email: darylemb@gmail.com
+          config:
+            server:
+              # We're behind Cloudflare + Traefik, so this needs to reflect
+              # the public URL — otherwise Gitea redirects to internal hostnames.
+              ROOT_URL: https://gitea.darylm.xyz/
+              DOMAIN: gitea.darylm.xyz
+              # Trust the Cloudflare proxy IP ranges so Gitea records the
+              # real client IP in audit logs.
+              TRUSTED_PROXIES: "*"
+            service:
+              DISABLE_REGISTRATION: true   # invite-only
+              ENABLE_NOTIFY_MAIL: false
+            openid:
+              ENABLE_OPENID_SIGNIN: false
+              ENABLE_OPENID_SIGNUP: false
+            session:
+              COOKIE_SECURE: true
+            oauth2:
+              # Leave blank — Google OAuth via Cloudflare Access handles auth.
+              ENABLE: false
+            # Storage-backed attachments (>=1.20 default 5MB; we allow 50MB).
+            attachment:
+              MAX_SIZE: 50
+              MAX_FILES: 10
+
+        # Persistence — local-path 10Gi (same storage class as chroma/grafana).
+        persistence:
+          enabled: true
+          storageClass: "local-path"
+          accessModes:
+            - ReadWriteOnce
+          size: 10Gi
+          # Sub-path inside the PVC for the data dir.
+          existingClaim: ""
+
+        # Resource limits — gitea is small for single-user use.
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 1000m
+            memory: 1Gi
+
+        # Single replica — local-path PVC is RWO, so HA requires more work.
+        replicaCount: 1
+
+        # Service — ClusterIP only; the Ingress reaches it on port 3000.
+        # The chart's default value.yaml sets `service.http.clusterIP: None`,
+        # which Go templates render as a literal "None" string and produce a
+        # *headless* Service. Headless Services have no clusterIP and the
+        # Ingress backend won't resolve them. Force an empty clusterIP so
+        # the field is omitted entirely and the API server assigns one.
+        service:
+          http:
+            type: ClusterIP
+            port: 3000
+            # Gitea listens on 3000 by default.
+            targetPort: 3000
+            clusterIP: ""
+
+        # Disable the chart's built-in Ingress — we manage our own so the
+        # cert-manager annotations and Traefik entrypoint stay consistent
+        # with grafana-ingress.yaml / argo-ingress.yaml.
+        ingress:
+          enabled: false
+
+        # Don't auto-create the default PostgreSQL — use the chart's built-in
+        # sqlite default (single-user, low-volume). When we need Postgres we
+        # can switch via `database.builtIn.postgresql.enabled: false` and
+        # point `database.external` at a managed DB.
+        postgresql:
+          enabled: false
+
+        # Built-in sqlite is fine for single-user.
+        database:
+          builtIn:
+            sqlite:
+              enabled: true
+
+        # Disable the bundled memcached/redis — not needed for single-user.
+        memcached:
+          enabled: false
+        redis:
+          enabled: false
+
+        # Image pulls (the chart's defaults are fine; pin via tag below).
+        image:
+          tag: "1.26.1"
+
+        # Liveness/readiness — generous, single-user.
+        livenessProbe:
+          initialDelaySeconds: 60
+          periodSeconds: 30
+        readinessProbe:
+          initialDelaySeconds: 30
+          periodSeconds: 10
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: gitea
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - PrunePropagationPolicy=foreground
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m

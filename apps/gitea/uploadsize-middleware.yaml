@@ -1,0 +1,23 @@
+---
+# Traefik middleware to allow large Git pushes to Gitea.
+#
+# Gitea's default API accepts uploads up to 4MB, but `git push` can send
+# much larger packfiles. Without bumping the body limit, a push of a
+# moderately-sized repo fails with HTTP 413 from Traefik before Gitea
+# ever sees it. We set 512Mi which is plenty for any single-user instance.
+#
+# This is referenced by apps/gitea/ingress.yaml via the
+# `traefik.ingress.kubernetes.io/router.middlewares` annotation.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: gitea-uploadsize
+  namespace: gitea
+spec:
+  buffering:
+    # 512 MiB request body limit — covers packfiles up to ~500 MiB.
+    maxRequestBodyBytes: 536870912
+    # Don't buffer the response — Gitea streams clone responses back.
+    memRequestBodyBytes: 1048576
+    # Reasonable retry / timeout so dead clients don't pin a connection.
+    retryExpression: "IsNetworkError() && Attempts() < 2"
