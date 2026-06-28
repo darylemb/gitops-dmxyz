@@ -9,10 +9,12 @@
 # Pinned to v12.6.0 (app v1.26.1, May 2026). Bump via PR.
 #
 # After Argo CD syncs:
-#   1. Initial admin user is auto-created with the username/password below
-#      (CHANGE THESE — they're inlined as the chart default; we'll switch to
-#      an Imperative Secret + adminUser.existingSecret once that's wired up).
-#   2. The Ingress in apps/gitea/ingress.yaml exposes the Service as
+#   1. Initial admin user is auto-created on first boot from the
+#      `gitea-admin` Secret in the `gitea` namespace (see apps/gitea/README.md).
+#      Password lives in the Secret, NOT in git. To rotate, regenerate the
+#      Secret and let Argo reconcile — Gitea's chart re-uses existing admin
+#      passwords from existingSecret on subsequent boots.
+#   2. The Ingress in apps/gitea-ingress.yaml exposes the Service as
 #      gitea.darylm.xyz (cert-manager TLS, Cloudflare Access on top).
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -29,12 +31,18 @@ spec:
     targetRevision: 12.6.0
     helm:
       values: |
-        # Single-node, single-user. Default admin is created on first boot.
+        # Single-node, single-user. Admin password is sourced from the
+        # `gitea-admin` Secret in the `gitea` namespace (key: `password`).
+        # Create it once with:
+        #   openssl rand -hex 32 | kubectl create secret generic gitea-admin \
+        #     --namespace=gitea --from-file=password=/dev/stdin
+        # On chart upgrades Gitea re-uses the existing admin password from
+        # the Secret, so changing it here won't overwrite the live password
+        # you already set in the UI.
         gitea:
           admin:
             username: daryl
-            # CHANGE BEFORE FIRST BOOT — move to a Secret reference.
-            password: "REPLACE_ME_VIA_SECRET_BEFORE_FIRST_BOOT"
+            existingSecret: gitea-admin
             email: darylemb@gmail.com
           config:
             server:
@@ -63,7 +71,9 @@ spec:
               COOKIE_SECURE: true
             oauth2:
               # Leave blank — Google OAuth via Cloudflare Access handles auth.
-              ENABLE: false
+              # NOTE: chart 12.6.0 still accepts `ENABLE` but logs a deprecation
+              # warning. Migrated to `ENABLED` (gitea 1.23+ removed the alias).
+              ENABLED: false
             # Storage-backed attachments (>=1.20 default 5MB; we allow 50MB).
             attachment:
               MAX_SIZE: 50
