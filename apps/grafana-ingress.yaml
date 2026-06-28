@@ -1,21 +1,40 @@
+---
+# Grafana Ingress with cert-manager + Let's Encrypt.
+#
+# cert-manager sees the cert-manager.io/cluster-issuer annotation and:
+#  1. Creates a Certificate for grafana.darylm.xyz
+#  2. Solves DNS-01 via Cloudflare (see apps/cert-manager/cluster-issuer.yaml)
+#  3. Stores the issued cert in the Secret `grafana-darylm-xyz-tls`
+#  4. Renews automatically
+#
+# Traefik serves the cert from that Secret (because the tls.secretName
+# matches). Cloudflare proxy → OCI LB (TCP passthrough) → Traefik on :443 →
+# Grafana.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: grafana-ingress
   namespace: monitoring
   annotations:
-    kubernetes.io/ingress.class: traefik
+    # cert-manager will issue a Let's Encrypt cert via the ClusterIssuer
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    # Use the modern Traefik IngressClass (annotation `kubernetes.io/ingress.class`
+    # is deprecated in Traefik v3 / k3s 1.34+).
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
-    traefik.ingress.kubernetes.io/router.tls: "true"
 spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - grafana.darylm.xyz
+      secretName: grafana-darylm-xyz-tls
   rules:
-  - host: grafana.darylm.xyz
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: kube-prometheus-stack-grafana
-            port:
-              number: 80
+    - host: grafana.darylm.xyz
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: kube-prometheus-stack-grafana
+                port:
+                  number: 80

@@ -1,0 +1,57 @@
+---
+# Argo CD Application for cert-manager.
+#
+# cert-manager issues TLS certificates for in-cluster Ingresses / Services.
+# The chart is the official jetstack/cert-manager. We pin a version that's
+# stable on k3s 1.35.x (chart v1.16.x → app v1.16.x → supports k8s 1.30-1.32,
+# works fine on k3s 1.35).
+#
+# After this Application is Synced, you need to:
+#   1. Create the cloudflare-api-token secret (see apps/cert-manager/README.md)
+#   2. Apply the ClusterIssuer (apps/cert-manager/cluster-issuer.yaml)
+#   3. Reference the issuer in your Ingress (annotation cert-manager.io/cluster-issuer)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager
+  namespace: argocd
+  labels:
+    app: cert-manager
+spec:
+  project: default
+  source:
+    repoURL: https://charts.jetstack.io
+    chart: cert-manager
+    targetRevision: v1.16.2
+    helm:
+      values: |
+        # Don't install the cert-manager.io Issuer/ClusterIssuer CRDs as part of
+        # the chart install — we manage those ourselves via GitOps so we can
+        # review the issuer config in PRs.
+        installCRDs: true
+        # We need DNS-01 challenge (not HTTP-01) because the OCI LB does TCP
+        # passthrough and the services aren't reachable on :80/:443 from
+        # Let's Encrypt. DNS-01 only needs the Cloudflare API token.
+        # The Cloudflare API token Secret is created imperatively (see
+        # apps/cert-manager/README.md) and referenced by name in the
+        # ClusterIssuer.
+        # Disable the default self-signed ClusterIssuer that the chart tries
+        # to create — we don't need it.
+        extraArgs:
+          - --cluster-issuer-ambient-credentials=false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
