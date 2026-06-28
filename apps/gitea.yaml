@@ -45,6 +45,14 @@ spec:
               # Trust the Cloudflare proxy IP ranges so Gitea records the
               # real client IP in audit logs.
               TRUSTED_PROXIES: "*"
+            # IMPORTANT: the chart ships with an `app.ini` preset that
+            # defaults DB_TYPE to `postgres`. Even with all the postgres-ha
+            # and valkey sub-charts disabled (below), the gitea container
+            # will try to dial gitea-postgresql-ha-pgpool and crash-loop.
+            # Force sqlite3 here so the preset is overridden.
+            database:
+              DB_TYPE: sqlite3
+              PATH: /data/gitea/gitea.db
             service:
               DISABLE_REGISTRATION: true   # invite-only
               ENABLE_NOTIFY_MAIL: false
@@ -118,7 +126,8 @@ spec:
         valkey-cluster:
           enabled: false
 
-        # Built-in sqlite is fine for single-user.
+        # Built-in sqlite is fine for single-user. The actual DB_TYPE
+        # override lives under `gitea.config.database` above.
         database:
           builtIn:
             sqlite:
