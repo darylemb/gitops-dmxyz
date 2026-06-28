@@ -1,0 +1,40 @@
+---
+# Gitea Ingress — same pattern as argo-ingress.yaml / grafana-ingress.yaml.
+#
+# Traefik serves :443, cert-manager issues a Let's Encrypt cert via the
+# Cloudflare DNS-01 solver (the `letsencrypt-prod` ClusterIssuer from
+# apps/cert-manager/). The Cloudflare repo creates the A record pointing at
+# the OCI LB (see darylemb/cloudflare/services.tfvars -> gitea entry) and
+# the Access policy that gates non-public hostnames.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gitea-ingress
+  namespace: gitea
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    # Single-user, low-volume — generous upload limits so pushes of large
+    # repos don't hit a 413 from Traefik before Gitea sees them.
+    traefik.ingress.kubernetes.io/router.middlewares: gitea-uploadsize@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - gitea.darylm.xyz
+      secretName: gitea-darylm-xyz-tls
+  rules:
+    - host: gitea.darylm.xyz
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                # The chart's primary Service is `gitea-http` (port 3000).
+                # We point at it directly to avoid the chart's opinionated
+                # `gitea.default` Service selectors (which include
+                # component-only labels that fluctuate across chart versions).
+                name: gitea-http
+                port:
+                  number: 3000
