@@ -16,7 +16,7 @@ metadata:
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
     # Single-user, low-volume — generous upload limits so pushes of large
     # repos don't hit a 413 from Traefik before Gitea sees them.
-    traefik.ingress.kubernetes.io/router.middlewares: gitea-uploadsize@kubernetescrd
+    traefik.ingress.kubernetes.io/router.middlewares: gitea-gitea-uploadsize@kubernetescrd
 spec:
   ingressClassName: traefik
   tls:
