@@ -103,11 +103,19 @@ spec:
         ingress:
           enabled: false
 
-        # Don't auto-create the default PostgreSQL — use the chart's built-in
-        # sqlite default (single-user, low-volume). When we need Postgres we
-        # can switch via `database.builtIn.postgresql.enabled: false` and
-        # point `database.external` at a managed DB.
+        # Disable ALL bundled databases/cache. The chart v12.6.0 ships FOUR
+        # sub-charts (postgresql, postgresql-ha, valkey, valkey-cluster)
+        # that are ENABLED BY DEFAULT and would otherwise consume ~150Mi
+        # of PVCs and try to coordinate as a HA cluster — completely
+        # unnecessary for single-user. The chart's `dependencies:` block
+        # gates each on `<name>.enabled`, so we set all four to false.
         postgresql:
+          enabled: false
+        postgresql-ha:
+          enabled: false
+        valkey:
+          enabled: false
+        valkey-cluster:
           enabled: false
 
         # Built-in sqlite is fine for single-user.
@@ -115,12 +123,6 @@ spec:
           builtIn:
             sqlite:
               enabled: true
-
-        # Disable the bundled memcached/redis — not needed for single-user.
-        memcached:
-          enabled: false
-        redis:
-          enabled: false
 
         # Image pulls (the chart's defaults are fine; pin via tag below).
         image:
