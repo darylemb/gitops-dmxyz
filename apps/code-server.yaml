@@ -1,0 +1,154 @@
+# Argo CD Application for code-server.
+#
+# Self-hosted VS Code in the browser (https://github.com/coder/code-server).
+# Single-user instance (Daryl only), with bind-mounts to the host filesystem
+# so we can edit /home/opc (RW) and inspect k3s configs (RO).
+#
+# Image: linuxserver/code-server (stable, ARM64-compatible, auto-updates).
+# Port: 8443 (HTTPS, the image's default).
+#
+# Pattern follows gitea.yaml — chart-based Argo app with all values inline.
+# Secrets (admin password) live in `code-server` namespace, NOT in git.
+# See apps/code-server-secret.yaml for the Secret manifest.
+#
+# Cloudflare Access: see darylemb/cloudflare repo (services.tfvars -> code-server).
+# Cloudflare creates the A record and the Access policy on `terraform apply`.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: code-server
+  namespace: argocd
+  labels:
+    app: code-server
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/coder/code-server
+    chart: code-server
+    targetRevision: 4.96.1
+    helm:
+      values: |
+        # Image: linuxserver variant — supports ARM64 (Ampere is aarch64),
+        # auto-updates via Docker labels, and ships a sane default config.
+        image:
+          repository: ghcr.io/linuxserver/code-server
+          tag: 4.96.1
+          pullPolicy: IfNotPresent
+
+        # Run as opc (uid 1000) so bind-mounted files are owned correctly.
+        # /home/opc on the host is owned by uid 1000.
+        securityContext:
+          runAsUser: 1000
+          runAsGroup: 1000
+          fsGroup: 1000
+
+        # Single user, no password prompt on the web UI (Cloudflare Access
+        # handles auth at the edge). Password is in the Secret and only used
+        # for the code-server API, NOT for the web login (CF Access sits
+        # in front).
+        service:
+          type: ClusterIP
+          port: 8443
+
+        # Persistence for /config — extensions, settings, .vscode-server.
+        # Uses local-path (same as gitea, chroma, prometheus, loki).
+        # Bind mount to the host filesystem comes from the PVC AND from
+        # extra volume mounts (see below).
+        persistence:
+          enabled: true
+          existingClaim: code-server-config
+          mountPath: /config
+
+        # Bind mounts to host paths (the actual filesystem the user wants
+        # to edit). These are ADDITIONAL to /config from the PVC.
+        # We use an initContainer-free pattern by listing them under
+        # `extraVolumeMounts` and `extraVolumes`.
+        extraVolumes: |
+          - name: home-opc
+            hostPath:
+              path: /home/opc
+              type: Directory
+          - name: k3s-config
+            hostPath:
+              path: /etc/rancher/k3s
+              type: Directory
+          - name: k3s-storage
+            hostPath:
+              path: /var/lib/rancher/k3s/storage
+              type: Directory
+          - name: kustomize-templates
+            hostPath:
+              path: /home/opc/gitops-dmxyz
+              type: Directory
+        extraVolumeMounts: |
+          - name: home-opc
+            mountPath: /home/opc
+            readOnly: false
+          - name: k3s-config
+            mountPath: /etc/rancher/k3s
+            readOnly: true
+          - name: k3s-storage
+            mountPath: /var/lib/rancher/k3s/storage
+            readOnly: true
+          - name: kustomize-templates
+            mountPath: /workspace/gitops-dmxyz
+            readOnly: false
+
+        # Extra env vars: password, default workspace, disable telemetry.
+        env:
+          - name: PUID
+            value: "1000"
+          - name: PGID
+            value: "1000"
+          - name: TZ
+            value: "America/Mexico_City"
+          - name: DEFAULT_WORKSPACE
+            value: /workspace/gitops-dmxyz
+          - name: DISABLE_TELEMETRY
+            value: "true"
+
+        # Resources: code-server is heavy (extensions, TS server, etc.)
+        # but not crazy. 500m-1.5CPU, 1-3Gi RAM.
+        resources:
+          requests:
+            cpu: 200m
+            memory: 512Mi
+          limits:
+            cpu: 1500m
+            memory: 3Gi
+
+        # Don't install any extensions by default — let the user install
+        # via the UI. They persist in /config (the PVC).
+        # extensions: []
+
+        # Probes: code-server takes ~10s to boot. Liveness via the same
+        # /healthz endpoint as the actual code-server image.
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8443
+            scheme: HTTPS
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8443
+            scheme: HTTPS
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: code-server
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+    - ServerSideApply=true

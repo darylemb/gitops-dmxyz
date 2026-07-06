@@ -1,0 +1,21 @@
+---
+# PVC for code-server's /config (extensions, settings, .vscode-server).
+#
+# 5Gi is plenty — extensions are ~100-200MB total for a typical setup.
+# local-path storage (same as gitea, chroma, prometheus, loki).
+# Backing-store is on /mnt/ampere-data via the bind-mount config in k3s.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: code-server-config
+  namespace: code-server
+  labels:
+    app: code-server
+    app.kubernetes.io/managed-by: gitops-dmxyz
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi
