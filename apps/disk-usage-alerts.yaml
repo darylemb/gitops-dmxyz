@@ -30,7 +30,7 @@ spec:
         node: ampere
       annotations:
         summary: "⚠️ Disco root casi lleno (Ampere)"
-        description: "El filesystem / en instance-20250822-0701 tiene menos de 25% libre (menos de 10GB absolutos). Quedan {{ printf \"%.2f\" $value }}% disponibles. Acción: revisar /var/lib, /var/log, paquetes dnf, o mover archivos a /mnt/ampere-data."
+        description: "El filesystem / en instance-20250822-0701 tiene menos de 25% libre (menos de 10GB absolutos). Quedan {{ printf \"%.2f\" $value }}% disponibles. Accion: revisar /var/lib, /var/log, paquetes dnf, o mover archivos a /mnt/ampere-data."
         runbook_url: "https://grafana.darylm.xyz/d/disk-usage"
 
     # Critical: root filesystem <10% libre (quedan ~3GB)
@@ -49,7 +49,7 @@ spec:
         node: ampere
       annotations:
         summary: "🚨 URGENTE: Disco root casi lleno en Ampere"
-        description: "El filesystem / tiene menos de 10% libre. Quedan {{ printf \"%.2f\" $value }}% ({{ printf \"%.2f\" (($value * 100) / 107374182400) }}GB aprox). Acción INMEDIATA requerida para evitar caída del cluster."
+        description: "El filesystem / tiene menos de 10% libre. Quedan {{ printf \"%.2f\" $value }}% disponibles. Accion INMEDIATA requerida para evitar caida del cluster."
         runbook_url: "https://grafana.darylm.xyz/d/disk-usage"
 
     # Warning: ampere-data >80% usado
@@ -71,7 +71,7 @@ spec:
         description: "/mnt/ampere-data tiene menos de 20% libre. Quedan {{ printf \"%.2f\" $value }}% disponibles. Revisar crecimiento de PVCs (chroma, gitea, prometheus, loki, grafana)."
         runbook_url: "https://grafana.darylm.xyz/d/disk-usage"
 
-    # Info: predicción de llenado en 24h (basado en tendencia)
+    # Info: prediccion de llenado en 24h (basado en tendencia)
     - alert: RootFilesystemFillingFast
       expr: |
         predict_linear(node_filesystem_avail_bytes{mountpoint="/",job="node-exporter"}[6h], 24*3600) < 0
@@ -81,6 +81,6 @@ spec:
         filesystem: root
         node: ampere
       annotations:
-        summary: "📈 Disco root llenándose rápido (predicción 24h)"
-        description: "Tendencia de crecimiento en / indica que se llenará en menos de 24h según predicción lineal. Quedan ~5% libre actualmente. Acción: revisar logs grandes o mover datos."
+        summary: "📈 Disco root llenandose rapido (prediccion 24h)"
+        description: "Tendencia de crecimiento en / indica que se llenara en menos de 24h segun prediccion lineal. Quedan menos de 5% libre actualmente. Accion: revisar logs grandes o mover datos."
         runbook_url: "https://grafana.darylm.xyz/d/disk-usage"
