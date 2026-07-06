@@ -11,6 +11,39 @@ spec:
     targetRevision: 80.14.4
     helm:
       values: |
+        alertmanager:
+          alertmanagerSpec:
+            # Reemplaza el receiver "null" por defecto con uno que entrega a un webhook
+            # (URL placeholder - cambiar por Discord/Telegram/Slack/etc cuando esté listo)
+            config:
+              global:
+                resolve_timeout: 5m
+              route:
+                group_by: ['namespace', 'alertname']
+                group_wait: 30s
+                group_interval: 5m
+                repeat_interval: 4h
+                receiver: 'webhook-default'
+                routes:
+                - matchers:
+                  - severity = "critical"
+                  receiver: 'webhook-critical'
+                  group_wait: 10s
+              receivers:
+              - name: 'webhook-default'
+                webhookConfigs:
+                - url: 'http://placeholder.local/alerts'
+                  sendResolved: true
+              - name: 'webhook-critical'
+                webhookConfigs:
+                - url: 'http://placeholder.local/alerts-critical'
+                  sendResolved: true
+              inhibit_rules:
+              - equal: ['namespace', 'alertname']
+                source_matchers: ['severity = critical']
+                target_matchers: ['severity =~ warning|info']
+          # Persistir configuración via secret externo (para no perder en upgrades)
+          # Por ahora usa el config inline (auto-genera secret alertmanager-kube-prometheus-stack-alertmanager)
         grafana:
           assertNoLeakedSecrets: false
           envFromSecret: "grafana-db-secret"
@@ -38,6 +71,11 @@ spec:
             size: 5Gi
         prometheus:
           prometheusSpec:
+            # Cargar reglas custom desde manifests externos
+            # (el archivo disk-usage-alerts.yaml se aplica via root-app o AppSet)
+            ruleSelector:
+              matchLabels:
+                release: kube-prometheus-stack
             storageSpec:
               volumeClaimTemplate:
                 spec:

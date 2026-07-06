@@ -1,0 +1,86 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: disk-usage-alerts
+  namespace: monitoring
+  labels:
+    app: hermes-disk-monitor
+    app.kubernetes.io/managed-by: gitops-dmxyz
+    release: kube-prometheus-stack
+spec:
+  groups:
+  - name: disk-usage.rules
+    interval: 60s
+    rules:
+    # Warning: root filesystem <25% libre (quedan ~7.5GB)
+    - alert: RootFilesystemSpaceLow
+      expr: |
+        (
+          node_filesystem_avail_bytes{mountpoint="/",job="node-exporter",fstype="xfs"}
+          /
+          node_filesystem_size_bytes{mountpoint="/",job="node-exporter",fstype="xfs"}
+          * 100
+        ) < 25
+        and
+        node_filesystem_avail_bytes{mountpoint="/",job="node-exporter",fstype="xfs"} < 10 * 1024 * 1024 * 1024
+      for: 5m
+      labels:
+        severity: warning
+        filesystem: root
+        node: ampere
+      annotations:
+        summary: "⚠️ Disco root casi lleno (Ampere)"
+        description: "El filesystem / en instance-20250822-0701 tiene menos de 25% libre (menos de 10GB absolutos). Quedan {{ printf \"%.2f\" $value }}% disponibles. Acción: revisar /var/lib, /var/log, paquetes dnf, o mover archivos a /mnt/ampere-data."
+        runbook_url: "https://grafana.darylm.xyz/d/disk-usage"
+
+    # Critical: root filesystem <10% libre (quedan ~3GB)
+    - alert: RootFilesystemSpaceCritical
+      expr: |
+        (
+          node_filesystem_avail_bytes{mountpoint="/",job="node-exporter",fstype="xfs"}
+          /
+          node_filesystem_size_bytes{mountpoint="/",job="node-exporter",fstype="xfs"}
+          * 100
+        ) < 10
+      for: 2m
+      labels:
+        severity: critical
+        filesystem: root
+        node: ampere
+      annotations:
+        summary: "🚨 URGENTE: Disco root casi lleno en Ampere"
+        description: "El filesystem / tiene menos de 10% libre. Quedan {{ printf \"%.2f\" $value }}% ({{ printf \"%.2f\" (($value * 100) / 107374182400) }}GB aprox). Acción INMEDIATA requerida para evitar caída del cluster."
+        runbook_url: "https://grafana.darylm.xyz/d/disk-usage"
+
+    # Warning: ampere-data >80% usado
+    - alert: AmpereDataSpaceLow
+      expr: |
+        (
+          node_filesystem_avail_bytes{mountpoint="/mnt/ampere-data",job="node-exporter",fstype="ext4"}
+          /
+          node_filesystem_size_bytes{mountpoint="/mnt/ampere-data",job="node-exporter",fstype="ext4"}
+          * 100
+        ) < 20
+      for: 10m
+      labels:
+        severity: warning
+        filesystem: ampere-data
+        node: ampere
+      annotations:
+        summary: "⚠️ Disco ampere-data bajo (PVCs + datos)"
+        description: "/mnt/ampere-data tiene menos de 20% libre. Quedan {{ printf \"%.2f\" $value }}% disponibles. Revisar crecimiento de PVCs (chroma, gitea, prometheus, loki, grafana)."
+        runbook_url: "https://grafana.darylm.xyz/d/disk-usage"
+
+    # Info: predicción de llenado en 24h (basado en tendencia)
+    - alert: RootFilesystemFillingFast
+      expr: |
+        predict_linear(node_filesystem_avail_bytes{mountpoint="/",job="node-exporter"}[6h], 24*3600) < 0
+      for: 30m
+      labels:
+        severity: warning
+        filesystem: root
+        node: ampere
+      annotations:
+        summary: "📈 Disco root llenándose rápido (predicción 24h)"
+        description: "Tendencia de crecimiento en / indica que se llenará en menos de 24h según predicción lineal. Quedan ~5% libre actualmente. Acción: revisar logs grandes o mover datos."
+        runbook_url: "https://grafana.darylm.xyz/d/disk-usage"
