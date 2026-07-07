@@ -153,6 +153,32 @@ kubectl -n argocd patch deployment argocd-repo-server --type=merge -p \
 The proper fix is to debug the WireGuard Flannel setup on the cluster — out
 of scope for this PR.
 
+## ⚠️ Cluster DNS issue (blocks ARC + many other things)
+
+The cluster's CoreDNS cannot resolve external domains from inside pods.
+Verified on 2026-07-06:
+
+```bash
+kubectl run test-oci --image=alpine/git:2.47.2 --restart=Never \
+  --command -- wget -qO- https://ghcr.io/...
+# → wget: bad address 'ghcr.io'
+```
+
+This means **anything that does an OCI/HTTP pull from inside a pod** will
+fail. The ARC controller, ARC runners, and many other helm-based apps are
+affected. The fix is at the CoreDNS level (likely a misconfigured
+`forwarders` block, a NetworkPolicy, or a CoreDNS pod stuck in
+`CrashLoopBackOff`). Investigate with:
+
+```bash
+kubectl -n kube-system get pods -l k8s-app=kube-dns
+kubectl -n kube-system logs -l k8s-app=kube-dns --tail=20
+kubectl get configmap coredns -n kube-system -o yaml
+```
+
+**Out of scope for this PR.** This needs its own PR (likely a CoreDNS
+config + restart, or a NetworkPolicy fix).
+
 ## What's not fixed (out of scope)
 
 - **Helm CLI not in image** — `helm` and `kubectl` aren't installed either.
