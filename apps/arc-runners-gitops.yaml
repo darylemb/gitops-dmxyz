@@ -1,0 +1,114 @@
+---
+# Argo CD Application for the gitops-dmxyz ARC runner scale set.
+#
+# Chart: actions-runner-controller-charts/gha-runner-scale-set v0.14.2
+# Source: oci://ghcr.io/actions/actions-runner-controller-charts
+#
+# Deploys an AutoscalingRunnerSet that registers self-hosted runners
+# against darylemb/gitops-dmxyz. Autoscales 0..5 pods (scale-to-zero when
+# idle). Uses the official GitHub runner image without overriding its
+# entrypoint (required by the ARC listener handshake).
+#
+# Image: ghcr.io/actions/actions-runner:latest (the same image the GitHub-
+# hosted runners use internally). It already has git, curl, bash, jq,
+# and a Node.js toolchain. We add kubectl/kustomize/helm via an
+# initContainer that writes to a shared emptyDir at /usr/local/bin.
+#
+# Workflows in darylemb/gitops-dmxyz can opt in with:
+#   runs-on: [self-hosted, arc-runner-gitops-set]
+#
+# Prerequisite: the GitHub PAT Secret must exist in arc-runners before
+# the listener can register runners. See apps/arc/arc-README.md.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: arc-runner-gitops-set
+  namespace: argocd
+  labels:
+    app: arc-runner-gitops-set
+spec:
+  project: default
+  source:
+    repoURL: ghcr.io/actions/actions-runner-controller-charts
+    chart: gha-runner-scale-set
+    targetRevision: v0.14.2
+    helm:
+      values: |
+        # Auth: classic PAT, stored in arc-runners/arc-github-secret
+        githubConfigUrl: "https://github.com/darylemb/gitops-dmxyz"
+        githubConfigSecret: arc-github-secret
+
+        # Scaling: scale-to-zero when idle, max 5 concurrent jobs.
+        # minRunners=0 means cold start (~30-60s) for the first job
+        # after idle. Bump to 1 if you don't want the cold start.
+        minRunners: 0
+        maxRunners: 5
+
+        # Runner pod template. We don't override the entrypoint (the
+        # default GitHub runner image's /home/runner/run.sh is what
+        # the ARC listener expects for the runner registration handshake).
+        # Instead we use an initContainer to install cluster tools into
+        # a shared emptyDir mounted at /usr/local/bin, so they're
+        # available to every workflow step without re-installing per step.
+        template:
+          spec:
+            initContainers:
+              - name: install-tools
+                image: alpine:3.20
+                command: ["/bin/sh", "-c"]
+                args:
+                  - |
+                    set -e
+                    apk add --no-cache curl tar bash ca-certificates
+                    # kubectl (pinned to match k3s 1.34.3 on Ampere)
+                    curl -sLO "https://dl.k8s.io/release/v1.34.3/bin/linux/amd64/kubectl"
+                    install -m 0755 kubectl /tools/kubectl
+                    # kustomize (v5 line, most charts compatible)
+                    curl -sL https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.4.3/kustomize_v5.4.3_linux_amd64.tar.gz | tar xz
+                    install -m 0755 kustomize /tools/kustomize
+                    # helm
+                    curl -sL https://get.helm.sh/helm-v3.16.0-linux-amd64.tar.gz | tar xz
+                    install -m 0755 linux-amd64/helm /tools/helm
+                    echo "[init] tools installed: $(ls /tools)"
+                volumeMounts:
+                  - name: tools
+                    mountPath: /tools
+            containers:
+              - name: runner
+                # Official image. Default entrypoint runs the runner
+                # binary which the ARC listener connects to. Don't override.
+                image: ghcr.io/actions/actions-runner:latest
+                env:
+                  # Add /tools to PATH so kubectl/helm/kustomize are
+                  # available to every workflow step automatically.
+                  - name: PATH
+                    value: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/tools"
+                resources:
+                  requests:
+                    cpu: 500m
+                    memory: 1Gi
+                  limits:
+                    cpu: 2
+                    memory: 4Gi
+                volumeMounts:
+                  - name: tools
+                    mountPath: /tools
+            volumes:
+              - name: tools
+                emptyDir: {}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: arc-runners
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
