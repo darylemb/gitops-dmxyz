@@ -1,0 +1,101 @@
+---
+# Argo CD Application for the cloudflare ARC runner scale set.
+#
+# Same chart as PR #17 (arc-runners-gitops.yaml), but:
+#   - targets darylemb/cloudflare
+#   - maxRunners=2 (cloudflare workflows are smaller/fewer)
+#   - installs terraform + opentofu via initContainer
+#     (the cloudflare workflow runs terraform apply)
+#
+# The same Secret (arc-github-secret in arc-runners) is reused. The PAT
+# only needs 'repo' scope on the darylemb org, which both repos share.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: arc-runner-cloudflare-set
+  namespace: argocd
+  labels:
+    app: arc-runner-cloudflare-set
+spec:
+  project: default
+  source:
+    repoURL: ghcr.io/actions/actions-runner-controller-charts
+    chart: gha-runner-scale-set
+    targetRevision: v0.14.2
+    helm:
+      values: |
+        # Auth: same PAT, but for the cloudflare repo
+        githubConfigUrl: "https://github.com/darylemb/cloudflare"
+        githubConfigSecret: arc-github-secret
+
+        # Scaling: smaller pool. cloudflare workflows are infrequent
+        # (plan on PR, apply on push to main). maxRunners=2 is plenty.
+        minRunners: 0
+        maxRunners: 2
+
+        # Runner pod template. Tools: terraform (matching the workflow's
+        # hashicorp/setup-terraform@v2), opentofu (drop-in replacement,
+        # fully compatible with terraform configs), and jq (used by
+        # the workflow's API calls).
+        template:
+          spec:
+            initContainers:
+              - name: install-tools
+                image: alpine:3.20
+                command: ["/bin/sh", "-c"]
+                args:
+                  - |
+                    set -e
+                    apk add --no-cache curl tar bash ca-certificates git
+                    # Terraform 1.9.x (latest stable that matches cloudflare's
+                    # OCI provider requirements)
+                    curl -sL https://releases.hashicorp.com/terraform/1.9.8/terraform_1.9.8_linux_amd64.zip -o tf.zip
+                    unzip -q tf.zip
+                    install -m 0755 terraform /tools/terraform
+                    rm tf.zip
+                    # OpenTofu 1.7.x as a fallback (in case the workflow
+                    # ever needs to switch). Same binary, MIT-licensed.
+                    curl -sL https://github.com/opentofu/opentofu/releases/download/v1.7.3/tofu_1.7.3_linux_amd64.tar.gz | tar xz
+                    install -m 0755 tofu /tools/tofu
+                    # jq
+                    apk add --no-cache jq
+                    ln -sf /usr/bin/jq /tools/jq
+                    echo "[init] tools installed: $(ls /tools)"
+                volumeMounts:
+                  - name: tools
+                    mountPath: /tools
+            containers:
+              - name: runner
+                image: ghcr.io/actions/actions-runner:latest
+                env:
+                  - name: PATH
+                    value: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/tools"
+                resources:
+                  requests:
+                    cpu: 500m
+                    memory: 1Gi
+                  limits:
+                    cpu: 2
+                    memory: 4Gi
+                volumeMounts:
+                  - name: tools
+                    mountPath: /tools
+            volumes:
+              - name: tools
+                emptyDir: {}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: arc-runners
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
