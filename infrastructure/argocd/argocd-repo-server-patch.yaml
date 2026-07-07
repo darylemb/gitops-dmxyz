@@ -1,0 +1,92 @@
+# Patch: add git to argocd-repo-server
+#
+# Problem: The image `quay.io/argoproj/argocd:v3.2.5` (the "thin" image) does NOT
+# include the `git` binary. When Argo CD needs to fetch manifests from a git repo
+# (e.g. when comparing desired state), it exec's `git` from the container's PATH.
+# Since git is missing, the root-app and any new Application we add to gitops-dmxyz
+# fails with:
+#
+#   Failed to load target state: ... exec: "git": executable file not found in $PATH
+#
+# This makes the root-app status stick on "Unknown / ComparisonError" forever.
+# The cluster still appears to work because Argo only re-evaluates on changes,
+# but adding any new app (e.g. arc-controller, arc-runners-*) silently fails.
+#
+# Fix: add an initContainer that installs `git` using Alpine's `apk` package manager
+# (the base image is Alpine 3.22.1), and mount a shared emptyDir volume at
+# /usr/local/bin so the main container picks up the git binary.
+#
+# Apply with:
+#   kubectl -n argocd patch deployment argocd-repo-server --patch-file argocd-repo-server-patch.yaml
+#
+# Or imperatively:
+#   kubectl -n argocd set image deployment/argocd-repo-server \
+#     argocd-repo-server=quay.io/argoproj/argocd:v3.2.5
+#   kubectl -n argocd rollout restart deployment/argocd-repo-server
+#
+# To uninstall (in case Argo's upstream image ever ships git):
+#   kubectl -n argocd rollout undo deployment/argocd-repo-server
+#
+# Note: this patch is intentionally NOT a full chart re-install. Argo CD itself was
+# installed imperatively (not via the apps/ argocd Application), so we keep the
+# bootstrap pattern consistent: Argo doesn't manage its own install.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: argocd-repo-server
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/managed-by: manual-bootstrap
+    # This is the file that was generated and applied to fix the bug.
+    # See README.md for context and runbook.
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: install-git
+          image: alpine:3.22.1
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              apk add --no-cache git
+              # Copy git and its dependencies into the shared volume so the
+              # main container can use them.
+              mkdir -p /git-bin
+              # Use a busybox-friendly approach: copy from /usr/bin and /lib
+              for f in /usr/bin/git /usr/bin/git-receive-pack /usr/bin/git-upload-pack /usr/bin/git-upload-archive; do
+                if [ -f "$f" ]; then cp "$f" /git-bin/; fi
+              done
+              # Copy all shared libs that git depends on
+              mkdir -p /git-bin/lib
+              ldd /usr/bin/git 2>/dev/null | awk '/=>/ {print $3}' | while read lib; do
+                if [ -f "$lib" ]; then cp "$lib" /git-bin/lib/; fi
+              done
+              # Also copy the dynamic linker search path files
+              cp -r /etc/ld.so.conf* /git-bin/etc/ 2>/dev/null || true
+              echo "Installed $(/usr/bin/git --version)"
+          volumeMounts:
+            - name: git-bin
+              mountPath: /git-bin
+      containers:
+        - name: argocd-repo-server
+          # Keep the same image, but extend the PATH via env to include the
+          # git binary we just installed. No image rebuild required.
+          env:
+            - name: PATH
+              value: /git-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+          volumeMounts:
+            - name: git-bin
+              mountPath: /git-bin
+              readOnly: true
+            # Some library lookups also need /etc; keep it read-only too.
+            - name: git-etc
+              mountPath: /git-bin/etc
+              readOnly: true
+      volumes:
+        - name: git-bin
+          emptyDir: {}
+        - name: git-etc
+          emptyDir: {}
