@@ -2,23 +2,33 @@
 # Argo CD Application for Actions Runner Controller (ARC) — the operator
 # that orchestrates self-hosted GitHub Actions runners on k3s.
 #
-# Chart: actions-runner-controller/actions-runner-controller v0.23.7
-#   (app version 0.23.7, supports k8s 1.30+ — Ampere runs k3s 1.34.3)
+# Chart: gha-runner-scale-set-controller v0.14.2
+#   (app version 0.14.2, supports k8s 1.30+ — Ampere runs k3s 1.34.3)
 #
-# Source: OCI registry maintained by the GitHub Actions team + community
-#   oci://ghcr.io/actions/actions-runner-controller-charts/actions-runner-controller
+# Source: Helm repo hosted via the official actions-runner-controller repo
+#   repoURL: https://github.com/actions/actions-runner-controller
+#   chart:   charts/gha-runner-scale-set-controller
+#   revision: 0.14.2
+#
+# IMPORTANT: do NOT use `oci://ghcr.io/actions/actions-runner-controller-charts`
+# as a repoURL. That OCI registry only hosts `gha-runner-scale-set`, not
+# the controller. The controller chart lives in the GitHub repo's `charts/`
+# directory. Argo CD can pull Helm charts directly from a git repo by
+# pointing `repoURL` at the repo and `chart` at the relative path.
 #
 # The controller runs in the `arc-systems` namespace and manages
 # AutoscalingRunnerSet resources (defined in companion apps) that schedule
 # the actual runner pods in the `arc-runners` namespace.
 #
 # After this Application is Synced, you need to:
-#   1. Create the GitHub PAT Secret (see apps/arc/secret.yaml) — manual, one-time
-#   2. Apply the AutoscalingRunnerSet resources (apps/arc/arc-runners-*.yaml)
+#   1. Create the GitHub PAT Secret (one-time manual; already documented in
+#      PR #16 / apps/arc/arc-README.md) — the Secret must exist in the
+#      `arc-runners` namespace BEFORE the listener can register
+#   2. Apply the AutoscalingRunnerSet resources (apps/arc-runners-*.yaml)
 #   3. Reference the runner labels in your workflow `runs-on:` lines
 #
-# This PR covers ONLY step 1.2 (the controller). The runner scale sets
-# land in follow-up PRs.
+# This PR covers step 1.1 (the controller). The runner scale sets
+# land in follow-up PRs (#17, #18).
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -29,20 +39,19 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: ghcr.io/actions/actions-runner-controller-charts
-    chart: actions-runner-controller
-    targetRevision: v0.23.7
+    repoURL: https://github.com/actions/actions-runner-controller
+    chart: charts/gha-runner-scale-set-controller
+    targetRevision: 0.14.2
     helm:
       values: |
         # No custom values needed at the controller level. The controller
         # only orchestrates; all runner-specific config lives in the
-        # AutoscalingRunnerSet resources (apps/arc/arc-runners-*.yaml).
+        # AutoscalingRunnerSet resources (apps/arc-runners-*.yaml).
         #
         # Default behavior:
         #   - Single controller replica (stateless, no HA needed for single-user)
         #   - No persistent storage
-        #   - Listens for AutoscalingRunnerSet CRs cluster-wide (or per-namespace
-        #     if configured via --watch-single-namespace)
+        #   - Listens for AutoscalingRunnerSet CRs cluster-wide
   destination:
     server: https://kubernetes.default.svc
     namespace: arc-systems
