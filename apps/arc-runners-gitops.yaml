@@ -38,6 +38,16 @@ spec:
         githubConfigUrl: "https://github.com/darylemb/gitops-dmxyz"
         githubConfigSecret: arc-github-secret
 
+        # The gha-runner-scale-set chart auto-discovers the controller's
+        # ServiceAccount by looking for a Deployment with the label
+        # `app.kubernetes.io/part-of=gha-rs-controller` in the SAME
+        # namespace. Since our controller is in `arc-systems` and the
+        # runners are in `arc-runners`, the auto-discovery fails.
+        # We point explicitly at the controller's ServiceAccount.
+        controllerServiceAccount:
+          namespace: arc-systems
+          name: arc-controller-gha-rs-controller
+
         # Scaling: scale-to-zero when idle, max 5 concurrent jobs.
         # minRunners=0 means cold start (~30-60s) for the first job
         # after idle. Bump to 1 if you don't want the cold start.

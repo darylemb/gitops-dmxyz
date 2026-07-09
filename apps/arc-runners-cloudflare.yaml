@@ -28,6 +28,16 @@ spec:
         githubConfigUrl: "https://github.com/darylemb/cloudflare"
         githubConfigSecret: arc-github-secret
 
+        # The gha-runner-scale-set chart auto-discovers the controller's
+        # ServiceAccount by looking for a Deployment with the label
+        # `app.kubernetes.io/part-of=gha-rs-controller` in the SAME
+        # namespace. Since our controller is in `arc-systems` and the
+        # runners are in `arc-runners`, the auto-discovery fails.
+        # We point explicitly at the controller's ServiceAccount.
+        controllerServiceAccount:
+          namespace: arc-systems
+          name: arc-controller-gha-rs-controller
+
         # Scaling: smaller pool. cloudflare workflows are infrequent
         # (plan on PR, apply on push to main). maxRunners=2 is plenty.
         minRunners: 0
