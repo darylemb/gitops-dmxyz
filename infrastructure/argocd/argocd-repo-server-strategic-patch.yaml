@@ -1,0 +1,62 @@
+# Strategic-merge patch for argocd-repo-server
+#
+# This file is meant to be applied with `kubectl patch`, NOT `kubectl apply`.
+# Strategic merge only touches the fields listed below; everything else in the
+# existing Deployment is preserved (image, replicas, selector, etc.).
+#
+# Apply with:
+#   kubectl -n argocd patch deployment argocd-repo-server \
+#     --type=strategic --patch-file=argocd-repo-server-strategic-patch.yaml
+#
+# See README.md for full context.
+spec:
+  template:
+    spec:
+      initContainers:
+        - name: install-git
+          # Use `debian:bookworm-slim` (glibc) so the git binary is compatible
+          # with the argocd-repo-server container (also glibc, since it's based
+          # on Debian). Alpine-based images use musl, which is incompatible.
+          image: debian:bookworm-slim
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              apt-get update -qq
+              apt-get install -y -qq --no-install-recommends git ca-certificates
+              # Copy the git binary and ALL of its glibc dependencies into the
+              # shared volume. We use ldd + resolve to find every shared lib,
+              # including the dynamic linker path itself.
+              mkdir -p /git-bin/bin /git-bin/lib
+              cp /usr/bin/git /usr/bin/git-receive-pack /usr/bin/git-upload-pack /usr/bin/git-upload-archive /git-bin/bin/ 2>/dev/null || true
+              # Walk the ldd output and copy every lib. ldd prints the resolved
+              # path on the right of `=>`, e.g. `libc.so.6 => /lib/.../libc.so.6`
+              ldd /usr/bin/git | awk '/=>/ {print $3}' | sort -u | while read lib; do
+                if [ -f "$lib" ]; then cp "$lib" /git-bin/lib/; fi
+              done
+              echo "Installed: $(/git-bin/bin/git --version)"
+              echo "Libs copied:"
+              ls /git-bin/lib/
+          volumeMounts:
+            - name: git-bin
+              mountPath: /git-bin
+      containers:
+        - name: argocd-repo-server
+          env:
+            - name: PATH
+              value: /git-bin/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+            # LD_LIBRARY_PATH: /lib/aarch64-linux-gnu is the argocd container's
+            # default lib path (glibc). We put it FIRST so existing binaries
+            # like gpg keep working. /git-bin/lib is a fallback for git's
+            # specific libs. /lib and /usr/lib are also fallback in case git
+            # depends on something not in /lib/aarch64-linux-gnu.
+            - name: LD_LIBRARY_PATH
+              value: /lib/aarch64-linux-gnu:/usr/lib/aarch64-linux-gnu:/lib:/usr/lib:/git-bin/lib
+          volumeMounts:
+            - name: git-bin
+              mountPath: /git-bin
+              readOnly: true
+      volumes:
+        - name: git-bin
+          emptyDir: {}
