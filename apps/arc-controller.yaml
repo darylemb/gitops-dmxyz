@@ -2,27 +2,28 @@
 # Argo CD Application for Actions Runner Controller (ARC) — the operator
 # that orchestrates self-hosted GitHub Actions runners on k3s.
 #
-# Chart: gha-runner-scale-set-controller v0.14.2
+# Chart: gha-runner-scale-set-controller 0.14.2
 #   (app version 0.14.2, supports k8s 1.30+ — Ampere runs k3s 1.34.3)
 #
-# Source: Helm repo hosted via the official actions-runner-controller repo
-#   repoURL: https://github.com/actions/actions-runner-controller
-#   chart:   charts/gha-runner-scale-set-controller
+# Source: OCI registry maintained by the GitHub Actions team
+#   oci://ghcr.io/actions/actions-runner-controller-charts
+#   chart: gha-runner-scale-set-controller
 #   revision: 0.14.2
 #
-# IMPORTANT: do NOT use `oci://ghcr.io/actions/actions-runner-controller-charts`
-# as a repoURL. That OCI registry only hosts `gha-runner-scale-set`, not
-# the controller. The controller chart lives in the GitHub repo's `charts/`
-# directory. Argo CD can pull Helm charts directly from a git repo by
-# pointing `repoURL` at the repo and `chart` at the relative path.
+# IMPORTANT: do NOT use the chart name `actions-runner-controller` — that
+# doesn't exist in this OCI registry. The OCI registry hosts two charts:
+#   - gha-runner-scale-set              (the runner chart, used in apps/arc-runners-*.yaml)
+#   - gha-runner-scale-set-controller   (the controller chart, this one)
+#
+# Both are at OCI revision `0.14.2` (no `v` prefix in OCI tags).
 #
 # The controller runs in the `arc-systems` namespace and manages
 # AutoscalingRunnerSet resources (defined in companion apps) that schedule
 # the actual runner pods in the `arc-runners` namespace.
 #
 # After this Application is Synced, you need to:
-#   1. Create the GitHub PAT Secret (one-time manual; already documented in
-#      PR #16 / apps/arc/arc-README.md) — the Secret must exist in the
+#   1. Create the GitHub PAT Secret (one-time manual; see PR #16 /
+#      apps/arc/arc-README.md) — the Secret must exist in the
 #      `arc-runners` namespace BEFORE the listener can register
 #   2. Apply the AutoscalingRunnerSet resources (apps/arc-runners-*.yaml)
 #   3. Reference the runner labels in your workflow `runs-on:` lines
@@ -39,8 +40,8 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/actions/actions-runner-controller
-    chart: charts/gha-runner-scale-set-controller
+    repoURL: ghcr.io/actions/actions-runner-controller-charts
+    chart: gha-runner-scale-set-controller
     targetRevision: 0.14.2
     helm:
       values: |
