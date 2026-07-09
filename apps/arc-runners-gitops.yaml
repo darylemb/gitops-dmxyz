@@ -31,7 +31,7 @@ spec:
   source:
     repoURL: ghcr.io/actions/actions-runner-controller-charts
     chart: gha-runner-scale-set
-    targetRevision: v0.14.2
+    targetRevision: 0.14.2
     helm:
       values: |
         # Auth: classic PAT, stored in arc-runners/arc-github-secret
