@@ -95,3 +95,4 @@ spec:
     - CreateNamespace=true
     - ServerSideApply=true
     - Replace=true
+    - SkipHookPreSync=true
