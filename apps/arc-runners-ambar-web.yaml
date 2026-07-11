@@ -1,5 +1,17 @@
 ---
 # Argo CD Application for the ambar-web ARC runner scale set.
+#
+# Dedicated runner pool for the darylemb/ambar-web repo. Replaces the
+# legacy Coolify-managed runners that lived on rocky-server.
+#
+# Why pin to Ampere (instance-20250822-0701):
+#   rocky-worker has DNS resolution issues with api.github.com
+#   (WireGuard cross-node bug). The listener gets stuck queued because
+#   it can't fetch the runner registration token from GitHub.
+#   We use nodeAffinity in BOTH listenerTemplate and template to force
+#   scheduling on Ampere. nodeAffinity is preferred over nodeName because
+#   if Ampere is down, K8s won't schedule (vs nodeName which is a hard
+#   constraint that may cause failures). For this app we want hard pinning.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -24,8 +36,14 @@ spec:
         maxRunners: 2
         scaleSetLabels:
           - ambar-web
+        listenerTemplate:
+          spec:
+            containers:
+              - name: listener
+            nodeName: instance-20250822-0701
         template:
           spec:
+            nodeName: instance-20250822-0701
             containers:
               - name: runner
                 image: ghcr.io/actions/actions-runner:latest
