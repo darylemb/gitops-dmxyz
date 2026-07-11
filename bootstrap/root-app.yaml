@@ -12,8 +12,7 @@ spec:
     # Excluir archivos que tienen su propia Application dedicada
     # (disk-usage-alerts.yaml es manejado por apps/disk-usage-alerts-app.yaml)
     directory:
-      exclude:
-        - disk-usage-alerts.yaml
+      exclude: "disk-usage-alerts.yaml"
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd
