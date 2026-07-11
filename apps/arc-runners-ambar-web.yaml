@@ -4,14 +4,18 @@
 # Dedicated runner pool for the darylemb/ambar-web repo. Replaces the
 # legacy Coolify-managed runners that lived on rocky-server.
 #
-# Why pin to Ampere (instance-20250822-0701):
-#   rocky-worker has DNS resolution issues with api.github.com
-#   (WireGuard cross-node bug). The listener gets stuck queued because
-#   it can't fetch the runner registration token from GitHub.
-#   We use nodeAffinity in BOTH listenerTemplate and template to force
-#   scheduling on Ampere. nodeAffinity is preferred over nodeName because
-#   if Ampere is down, K8s won't schedule (vs nodeName which is a hard
-#   constraint that may cause failures). For this app we want hard pinning.
+# Per GitHub docs (https://docs.github.com/en/actions/how-tos/manage-runners/
+# use-actions-runner-controller/deploy-runner-scale-sets):
+#   - The runner container MUST be named "runner"
+#   - The runner container MUST have command: ["/home/runner/run.sh"]
+#     so the actions-runner binary launches and connects to GitHub
+#   - Without this command, the container starts, finds nothing to run,
+#     and exits 0 immediately (the EphemeralRunner appears as Succeeded
+#     but never actually connects to GitHub to receive the job).
+#
+# nodeName pinning to instance-20250822-0701 (Ampere) is required because
+# rocky-worker has DNS resolution issues with api.github.com due to a
+# WireGuard cross-node bug.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -47,6 +51,7 @@ spec:
             containers:
               - name: runner
                 image: ghcr.io/actions/actions-runner:latest
+                command: ["/home/runner/run.sh"]
                 resources:
                   requests:
                     cpu: 500m
