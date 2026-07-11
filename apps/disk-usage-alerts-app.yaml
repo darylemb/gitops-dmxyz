@@ -9,7 +9,7 @@ spec:
   project: default
   source:
     repoURL: https://github.com/darylemb/gitops-dmxyz.git
-    targetRevision: feat/disk-usage-alerts
+    targetRevision: main
     path: apps
     # Solo tomar este archivo específico del directorio apps/
     directory:
